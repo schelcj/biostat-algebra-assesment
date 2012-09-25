@@ -15,9 +15,13 @@ Readonly::Scalar my $UNIT_URL      => q{https://lessons.ummu.umich.edu/2k/manage
 Readonly::Scalar my $DIRECTIONS    => q{Hello World};
 Readonly::Scalar my $SUMMARY       => q{Goodbye World};
 
-my $agent = get_login_agent();
+my $lesson_name = q{2013}; # TODO - get from command line arg
+my $title       = q{SPH Algebra Assesment for 2013}; # TODO - get from command line arg
+my $agent       = get_login_agent();
 
-create_lesson(q{lesson_name}, q{title});
+create_lesson($lesson_name, $title);
+my $resource_id = create_resource($lesson_name);
+create_question($resource_id, $lesson_name, $question, @answers);
 
 sub get_login_agent {
   my $mach = Net::Netrc->lookup('cosign.umich.edu');
@@ -33,6 +37,8 @@ sub get_login_agent {
     }
   );
 
+  die 'Unable to login to CoSign' if not $www->success;
+  say 'Logged into CoSign successfully' if $www->success;
 
   return $www;
 }
@@ -89,10 +95,62 @@ sub create_lesson {
     }
   );
 
+  say qq{Create lesson ($lesson_name) successfully} if $agent->success;
+
   return;
 }
 
 sub create_resource {
+  my ($lesson_name) = @_;
+
+  my $title    = 'Mathjax';
+  my $resource = <<'EOF';
+<!-- html -->
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+<!-- html -->
+EOF
+
+  $agent->post(
+    qq{$UMLESSONS_URL/2k/manage/resource/setup/sph_algebra_assesment/$lesson_name}, {
+      choice => 'text',
+      op     => 'Continue...',
+    }
+  );
+
+  $agent->post(
+    qq{$UMLESSONS_URL/2k/manage/resource/create/sph_algebra_assesment/$lesson_name}, {
+      choice          => 'text',
+      title           => $title,
+      keywords        => $EMPTY,
+      border          => '0',
+      borderBgColor   => 'black',
+      borderFillColor => 'none',
+      op              => 'Save',
+      excerpt         => $resource,
+    }
+  );
+
+  my ($url, $resource_id) = split(/\$/, $agent->response->previous->header('location'));
+
+  say qq{Create resource ($title - $resource_id) successfully} if $agent->success;
+  return $resource_id;
 }
 
-sub create_
+sub create_question {
+  my ($resource_id, $lesson_name, $question, @answers) = @_;
+
+  $agent->post(
+    qq{$UMLESSONS_URL/2k/manage/inquiry/create/sph_algebra_assesment/$lesson_name}, {
+      choice                               => 'multiple_choice',
+      op                                   => 'Save',
+      question                             => $question,
+      'multiple_choice:numberAnswers'      => '4',
+      'multiple_response:numberAnswers'    => '4',
+      'opinion_poll:numberAnswers'         => '5',
+      'question/align'                     => 'LEFT',
+      'question/resource'                  => $resource_id,
+      'rating_scale_queries:numberAnswers' => '5',
+      'rating_scales:numberAnswers'        => '1',
+    }
+  );
+}
