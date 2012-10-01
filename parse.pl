@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use Modern::Perl;
-use File::Slurp;
+use File::Slurp qw(read_file);
 use File::Temp;
 use IO::Scalar;
 use Data::Dumper;
@@ -14,13 +14,10 @@ my $temp_fh      = File::Temp->new();
 
 $contents =~ s/^(?:(.*)?\\begin{document})|(?:\\end{document})$//gs;
 
-write_file($temp_fh->filename, $contents);
-
 {
   local $/ = q{%QUESTION };
-  foreach my $line (read_file($temp_fh)) {
-    push @questions, $line;
-  }
+  my $content_fh = IO::Scalar->new(\$contents);
+  @questions = map {$_} $content_fh->getlines;
 }
 
 foreach my $question (@questions) {

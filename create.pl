@@ -4,7 +4,7 @@ use Modern::Perl;
 use WWW::Mechanize;
 use Net::Netrc;
 use Readonly;
-use File::Slurp;
+use File::Slurp qw(read_file);
 use File::Temp;
 use IO::Scalar;
 use Data::Dumper;
@@ -18,12 +18,11 @@ Readonly::Scalar my $UNIT_URL      => q{https://lessons.ummu.umich.edu/2k/manage
 Readonly::Scalar my $DIRECTIONS    => q{Hello World};
 Readonly::Scalar my $SUMMARY       => q{Goodbye World};
 
-my $latex       = $ARGV[0]; # TODO - use getopts
-my $lesson_name = q{2013}; # TODO - get from command line arg
-my $title       = q{SPH Algebra Assesment for 2013}; # TODO - get from command line arg
-my $agent       = get_login_agent();
+my $latex        = $ARGV[0];                             # TODO - use getopts
+my $lesson_name  = q{2013};                              # TODO - get from command line arg
+my $title        = q{SPH Algebra Assesment for 2013};    # TODO - get from command line arg
+my $agent        = get_login_agent();
 my $question_ref = parse_latex($latex);
-
 
 print Dumper $question_ref;
 exit;
@@ -41,13 +40,10 @@ sub parse_latex {
 
   $contents =~ s/^(?:(.*)?\\begin{document})|(?:\\end{document})$//gs;
 
-  write_file($temp_fh->filename, $contents);
-
   {
     local $/ = q{%QUESTION };
-    foreach my $line (read_file($temp_fh)) {
-      push @questions, $line;
-    }
+    my $content_fh = IO::Scalar->new(\$contents);
+    @questions = map {$_} $content_fh->getlines;
   }
 
   foreach my $question (@questions) {
