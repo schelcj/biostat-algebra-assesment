@@ -7,6 +7,9 @@ use Readonly;
 use File::Slurp qw(read_file);
 use File::Temp;
 use IO::Scalar;
+use Carp qw(croak);
+use English qw(-no_match_vars);
+use List::MoreUtils qw(apply);
 use Data::Dumper;
 
 Readonly::Scalar my $EMPTY         => q{};
@@ -18,13 +21,13 @@ Readonly::Scalar my $UNIT_URL      => q{https://lessons.ummu.umich.edu/2k/manage
 Readonly::Scalar my $DIRECTIONS    => q{Hello World};
 Readonly::Scalar my $SUMMARY       => q{Goodbye World};
 
-my $latex        = $ARGV[0];                             # TODO - use getopts
-my $lesson_name  = q{2013};                              # TODO - get from command line arg
-my $title        = q{SPH Algebra Assesment for 2013};    # TODO - get from command line arg
-my $agent        = get_login_agent();
-my $question_ref = parse_latex($latex);
+my $latex       = $ARGV[0];                             # TODO - use getopts
+my $lesson_name = q{2013};                              # TODO - get from command line arg
+my $title       = q{SPH Algebra Assesment for 2013};    # TODO - get from command line arg
+my $agent       = get_login_agent();
+my $parsed_ref  = parse_latex($latex);
 
-print Dumper $question_ref;
+print Dumper $parsed_ref;
 exit;
 
 #create_lesson($lesson_name, $title);
@@ -41,29 +44,33 @@ sub parse_latex {
   $contents =~ s/^(?:(.*)?\\begin{document})|(?:\\end{document})$//gs;
 
   {
-    local $/ = q{%QUESTION };
+    local $INPUT_RECORD_SEPARATOR = q{%QUESTION };
     my $content_fh = IO::Scalar->new(\$contents);
     @questions = map {$_} $content_fh->getlines;
   }
 
   foreach my $question (@questions) {
-    next if $question !~ /^(?<number>\d+)/;
-    my $number = $+{number};
-    $question_ref->[$number]->{number} = $number;
+    my $number;
+
+    if ($question =~ /^(\d+)/) {
+      $number = $1;
+      $question_ref->[$number]->{number} = $number;
+    } else {
+      next;
+    }
 
     {
-      local $/ = q{%};
+      local $INPUT_RECORD_SEPARATOR = q{%};
       my $question_fh = IO::Scalar->new(\$question);
       foreach my $line ($question_fh->getlines) {
 
         given ($line) {
           when ($line =~ /^$number\n/) {
-            my @parts = grep {/^\\/} split(/\n/, $line);
-            map {$_ =~ s/^(.*) \\\\$/$1/g} @parts;
+            my @parts = apply {$_ =~ s/^(.*) \\\\$/$1/g} grep {/^\\/} split(/\n/, $line);
             $question_ref->[$number]->{question} = join(qq{\n}, @parts);
           }
-          when ($line =~ /^$number(?<answer>([A-D]))\n/) {
-            my $answer = $+{answer};
+          when ($line =~ /^$number([A-D])\n/) {
+            my $answer = $1;
             $line =~ s/^${number}${answer}\n(.*)(?:(?:\s+[\\]+\s+[\n%]+)|\n+$)/$1/g;
             $question_ref->[$number]->{answers}->{$answer} = $line;
           }
@@ -89,14 +96,17 @@ sub get_login_agent {
     }
   );
 
-  die 'Unable to login to CoSign' if not $www->success;
-  say 'Logged into CoSign successfully' if $www->success;
+  if ($www->success) {
+    say 'Logged into CoSign successfully';
+  } else {
+    croak 'Unable to login to CoSign';
+  }
 
   return $www;
 }
 
 sub create_lesson {
-  my ($lesson_name, $title) = @_;
+  my ($name, $lesson_title) = @_;
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/lesson/setup/sph_algebra_assesment}, {
@@ -113,7 +123,7 @@ sub create_lesson {
       howManyItemsDisplayed => 'ALL',
       keywords              => $EMPTY,
       lastItemLast          => 'TRUE',
-      name                  => $lesson_name,
+      name                  => $name,
       navigationOptions     => 'sequential-only',
       new_setup             => 1,
       op                    => 'save',
@@ -127,12 +137,12 @@ sub create_lesson {
       showFooter            => 'TRUE',
       showLinks             => 'TRUE',
       style                 => 'quiz',
-      title                 => $title,
+      title                 => $lesson_title,
     }
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/sph_algebra_assesment/$lesson_name#directions}, {
+    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/sph_algebra_assesment/$name#directions}, {
       directionsText => $DIRECTIONS,
       op             => 'save',
       section        => 'directions',
@@ -140,39 +150,41 @@ sub create_lesson {
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/sph_algebra_assesment/$lesson_name#summary}, {
+    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/sph_algebra_assesment/$name#summary}, {
       summaryText => $SUMMARY,
       op          => 'save',
       section     => 'summary',
     }
   );
 
-  say qq{Create lesson ($lesson_name) successfully} if $agent->success;
+  if ($agent->success) {
+    say qq{Create lesson ($name) successfully};
+  }
 
   return;
 }
 
 sub create_resource {
-  my ($lesson_name) = @_;
+  my ($name) = @_;
 
-  my $title    = 'Mathjax';
-  my $resource = <<'EOF';
+  my $resource_title = 'Mathjax';
+  my $resource       = <<'EOF';
 <!-- html -->
 <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
 <!-- html -->
 EOF
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/resource/setup/sph_algebra_assesment/$lesson_name}, {
+    qq{$UMLESSONS_URL/2k/manage/resource/setup/sph_algebra_assesment/$name}, {
       choice => 'text',
       op     => 'Continue...',
     }
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/resource/create/sph_algebra_assesment/$lesson_name}, {
+    qq{$UMLESSONS_URL/2k/manage/resource/create/sph_algebra_assesment/$name}, {
       choice          => 'text',
-      title           => $title,
+      title           => $resource_title,
       keywords        => $EMPTY,
       border          => '0',
       borderBgColor   => 'black',
@@ -184,15 +196,18 @@ EOF
 
   my ($url, $resource_id) = split(/\$/, $agent->response->previous->header('location'));
 
-  say qq{Create resource ($title - $resource_id) successfully} if $agent->success;
+  if ($agent->success) {
+    say qq{Create resource ($resource_title - $resource_id) successfully};
+  }
+
   return $resource_id;
 }
 
 sub create_question {
-  my ($resource_id, $lesson_name, $question, @answers) = @_;
+  my ($resource_id, $name, $question, @answers) = @_;
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/inquiry/create/sph_algebra_assesment/$lesson_name}, {
+    qq{$UMLESSONS_URL/2k/manage/inquiry/create/sph_algebra_assesment/$name}, {
       choice                               => 'multiple_choice',
       op                                   => 'Save',
       question                             => $question,
@@ -205,4 +220,6 @@ sub create_question {
       'rating_scales:numberAnswers'        => '1',
     }
   );
+
+  return;
 }
