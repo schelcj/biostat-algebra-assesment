@@ -1,5 +1,7 @@
 #!/usr/bin/env perl
 
+# TODO questions 11 and 23 have rendering issues
+
 use Modern::Perl;
 use WWW::Mechanize;
 use Net::Netrc;
@@ -27,12 +29,16 @@ my $title       = q{SPH Algebra Assesment for 2013};    # TODO - get from comman
 my $agent       = get_login_agent();
 my $parsed_ref  = parse_latex($latex);
 
-print Dumper $parsed_ref;
-exit;
+create_lesson($lesson_name, $title);
 
-#create_lesson($lesson_name, $title);
-#my $resource_id = create_resource($lesson_name);
-#create_question($resource_id, $lesson_name, $question, @answers);
+my $resource_id = create_resource($lesson_name);
+
+foreach my $question (@{$parsed_ref}) {
+  next if not $question; # FIXME how did that undef get in there?
+  my $question_text = sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $question->{question});
+  my $question_id   = create_question($resource_id, $lesson_name, $question_text);
+  say "Created question #$question->{number}";
+}
 
 sub parse_latex {
   my ($test)       = @_;
@@ -66,8 +72,17 @@ sub parse_latex {
 
         given ($line) {
           when ($line =~ /^$number\n/) {
-            my @parts = apply {$_ =~ s/^(.*) \\\\$/$1/g} grep {/^\\/} split(/\n/, $line);
-            $question_ref->[$number]->{question} = join(qq{\n}, @parts);
+            my @parts = grep {/^\\/} split(/\n/, $line);
+            # my @lines = apply {$_ =~ s/^(.*) \\\\$/$1/g} @parts;
+            # FIXME these should be equivalent but something weird is going on in perl
+
+           my @lines;
+           for (@parts) {
+             $_ =~ s/^(.*) \\\\$/$1/g;
+             push @lines, $_;
+           }
+
+            $question_ref->[$number]->{question} = join(qq{\n}, @lines);
           }
           when ($line =~ /^$number([A-D])\n/) {
             my $answer = $1;
@@ -194,17 +209,17 @@ EOF
     }
   );
 
-  my ($url, $resource_id) = split(/\$/, $agent->response->previous->header('location'));
+  my ($url, $id) = split(/\$/, $agent->response->previous->header('location'));
 
   if ($agent->success) {
-    say qq{Create resource ($resource_title - $resource_id) successfully};
+    say qq{Create resource ($resource_title - $id) successfully};
   }
 
-  return $resource_id;
+  return $id;
 }
 
 sub create_question {
-  my ($resource_id, $name, $question, @answers) = @_;
+  my ($id, $name, $question) = @_;
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/inquiry/create/sph_algebra_assesment/$name}, {
@@ -214,12 +229,20 @@ sub create_question {
       'multiple_choice:numberAnswers'      => '4',
       'multiple_response:numberAnswers'    => '4',
       'opinion_poll:numberAnswers'         => '5',
-      'question/align'                     => 'LEFT',
-      'question/resource'                  => $resource_id,
+      'question/align'                     => 'ABOVE',
+      'question/resource'                  => $id,
       'rating_scale_queries:numberAnswers' => '5',
       'rating_scales:numberAnswers'        => '1',
     }
   );
 
+  # TODO change name of the question to something reasonable
+  # TODO get question id from url string like resources
+
+  return;
+}
+
+sub add_answers {
+  my ($question) = @_;
   return;
 }
