@@ -1,6 +1,14 @@
 #!/usr/bin/env perl
 
-# TODO questions 11 and 23 have rendering issues
+# TODO - add getopt for latex file and possbily more
+# TODO - answers are in a separate file and need to be imported
+# TODO - get directions and summary from template file
+#
+# FIXME - question 11 is a parsing issue with % signs in the question
+# FIXME - questions 24,25 use images, will have to figure this out
+# FIXME - parsing the latex results is giving an undef in the array, no idea why though
+# FIXME - second pass on parsing the latex is causing issues using % as line separartor
+#         need to handle the default case in the given/when phase
 
 use Modern::Perl;
 use WWW::Mechanize;
@@ -24,9 +32,9 @@ Readonly::Scalar my $UNIT_URL_NAME => q{sph_algebra_assesment};
 Readonly::Scalar my $DIRECTIONS    => q{Hello World};
 Readonly::Scalar my $SUMMARY       => q{Goodbye World};
 
-my $latex       = $ARGV[0];                             # TODO - use getopts
-my $lesson_name = q{2013};                              # TODO - get from command line arg
-my $title       = q{SPH Algebra Assesment for 2013};    # TODO - get from command line arg
+my $latex       = $ARGV[0];
+my $lesson_name = q{2013};
+my $title       = q{SPH Algebra Assesment for 2013};
 my $agent       = get_login_agent();
 my $parsed_ref  = parse_latex($latex);
 
@@ -35,7 +43,7 @@ create_lesson($lesson_name, $title);
 my $resource_id = create_resource($lesson_name);
 
 foreach my $question (@{$parsed_ref}) {
-  next if not $question;                                # FIXME how did that undef get in there?
+  next if not $question;
 
   my $question_id = create_question($resource_id, $lesson_name, $question);
   say "Created question #$question->{number} - $question_id";
@@ -43,6 +51,34 @@ foreach my $question (@{$parsed_ref}) {
   add_answers($question_id, $lesson_name, $question->{answers});
   my $answer_count = scalar keys %{$question->{answers}};
   say "Added $answer_count to question #$question->{number}";
+}
+
+sub format_latex_for_mathjax {
+  my ($latex) = @_;
+  return sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $latex);
+}
+
+sub get_login_agent {
+  my $mach = Net::Netrc->lookup('cosign.umich.edu');
+  my $www  = WWW::Mechanize->new();
+
+  $www->get($WEBLOGIN_URL);
+  $www->post(
+    qq{$WEBLOGIN_URL/$COSIGN_CGI}, {
+      login    => $mach->login,
+      password => $mach->password,
+      ref      => qq{$UMLESSONS_URL/2k/manage/workspace/reader},
+      service  => 'cosign-lessons.ummu',
+    }
+  );
+
+  if ($www->success) {
+    say 'Logged into CoSign successfully';
+  } else {
+    croak 'Unable to login to CoSign';
+  }
+
+  return $www;
 }
 
 sub parse_latex {
@@ -78,10 +114,6 @@ sub parse_latex {
         given ($line) {
           when ($line =~ /^$number\n/) {
             my @parts = grep {/^\\/} split(/\n/, $line);
-
-            # my @lines = apply {$_ =~ s/^(.*) \\\\$/$1/g} @parts;
-            # FIXME these should be equivalent but something weird is going on in perl
-
             my @lines;
             for (@parts) {
               $_ =~ s/^(.*) \\\\$/$1/g;
@@ -95,40 +127,14 @@ sub parse_latex {
             $line =~ s/^${number}${answer}\n(.*)(?:(?:\s+[\\]+\s+[\n%]+)|\n+$)/$1/g;
             $question_ref->[$number]->{answers}->{$answer} = $line;
           }
+          default {
+          }
         }
       }
     }
   }
 
   return $question_ref;
-}
-
-sub format_latex_for_mathjax {
-  my ($latex) = @_;
-  return sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $latex);
-}
-
-sub get_login_agent {
-  my $mach = Net::Netrc->lookup('cosign.umich.edu');
-  my $www  = WWW::Mechanize->new();
-
-  $www->get($WEBLOGIN_URL);
-  $www->post(
-    qq{$WEBLOGIN_URL/$COSIGN_CGI}, {
-      login    => $mach->login,
-      password => $mach->password,
-      ref      => qq{$UMLESSONS_URL/2k/manage/workspace/reader},
-      service  => 'cosign-lessons.ummu',
-    }
-  );
-
-  if ($www->success) {
-    say 'Logged into CoSign successfully';
-  } else {
-    croak 'Unable to login to CoSign';
-  }
-
-  return $www;
 }
 
 sub create_lesson {
@@ -282,8 +288,10 @@ sub add_answers {
     my $roman       = lc(roman($answer_number));
     my $order       = qq{c$roman.$answer_number};
     my $answer_text = $answers->{$answer};
-    
+
+    ## no tidy
     my $count = ()= $answer_text =~ /\$/g;
+    ## use tidy
     if ($count > 1) {
       $answer_text =~ s/\$//g;
     }
