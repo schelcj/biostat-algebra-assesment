@@ -12,6 +12,7 @@ use IO::Scalar;
 use Carp qw(croak);
 use English qw(-no_match_vars);
 use List::MoreUtils qw(apply);
+use Text::Roman;
 use Data::Dumper;
 
 Readonly::Scalar my $EMPTY         => q{};
@@ -19,7 +20,7 @@ Readonly::Scalar my $BANG          => q{!};
 Readonly::Scalar my $WEBLOGIN_URL  => q{https://weblogin.umich.edu};
 Readonly::Scalar my $COSIGN_CGI    => q{cosign-bin/cosign.cgi};
 Readonly::Scalar my $UMLESSONS_URL => q{https://lessons.ummu.umich.edu};
-Readonly::Scalar my $UNIT_URL      => q{https://lessons.ummu.umich.edu/2k/manage/unit/list_lessons/sph_algebra_assesment};
+Readonly::Scalar my $UNIT_URL_NAME => q{sph_algebra_assesment};
 Readonly::Scalar my $DIRECTIONS    => q{Hello World};
 Readonly::Scalar my $SUMMARY       => q{Goodbye World};
 
@@ -34,10 +35,14 @@ create_lesson($lesson_name, $title);
 my $resource_id = create_resource($lesson_name);
 
 foreach my $question (@{$parsed_ref}) {
-  next if not $question; # FIXME how did that undef get in there?
-  my $question_text = sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $question->{question});
-  my $question_id   = create_question($resource_id, $lesson_name, $question_text);
-  say "Created question #$question->{number}";
+  next if not $question;                                # FIXME how did that undef get in there?
+
+  my $question_id = create_question($resource_id, $lesson_name, $question);
+  say "Created question #$question->{number} - $question_id";
+
+  add_answers($question_id, $lesson_name, $question->{answers});
+  my $answer_count = scalar keys %{$question->{answers}};
+  say "Added $answer_count to question #$question->{number}";
 }
 
 sub parse_latex {
@@ -73,14 +78,15 @@ sub parse_latex {
         given ($line) {
           when ($line =~ /^$number\n/) {
             my @parts = grep {/^\\/} split(/\n/, $line);
+
             # my @lines = apply {$_ =~ s/^(.*) \\\\$/$1/g} @parts;
             # FIXME these should be equivalent but something weird is going on in perl
 
-           my @lines;
-           for (@parts) {
-             $_ =~ s/^(.*) \\\\$/$1/g;
-             push @lines, $_;
-           }
+            my @lines;
+            for (@parts) {
+              $_ =~ s/^(.*) \\\\$/$1/g;
+              push @lines, $_;
+            }
 
             $question_ref->[$number]->{question} = join(qq{\n}, @lines);
           }
@@ -95,6 +101,11 @@ sub parse_latex {
   }
 
   return $question_ref;
+}
+
+sub format_latex_for_mathjax {
+  my ($latex) = @_;
+  return sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $latex);
 }
 
 sub get_login_agent {
@@ -124,14 +135,14 @@ sub create_lesson {
   my ($name, $lesson_title) = @_;
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/setup/sph_algebra_assesment}, {
+    qq{$UMLESSONS_URL/2k/manage/lesson/setup/$UNIT_URL_NAME}, {
       op    => 'Continue...',
       style => 'quiz',
     }
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_settings/sph_algebra_assesment#lesson}, {
+    qq{$UMLESSONS_URL/2k/manage/lesson/update_settings/$UNIT_URL_NAME#lesson}, {
       charset               => $BANG,
       defaultShowTitle      => 'FALSE',
       firstItemFirst        => 'TRUE',
@@ -157,7 +168,7 @@ sub create_lesson {
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/sph_algebra_assesment/$name#directions}, {
+    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/$UNIT_URL_NAME/$name#directions}, {
       directionsText => $DIRECTIONS,
       op             => 'save',
       section        => 'directions',
@@ -165,7 +176,7 @@ sub create_lesson {
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/sph_algebra_assesment/$name#summary}, {
+    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/$UNIT_URL_NAME/$name#summary}, {
       summaryText => $SUMMARY,
       op          => 'save',
       section     => 'summary',
@@ -190,14 +201,14 @@ sub create_resource {
 EOF
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/resource/setup/sph_algebra_assesment/$name}, {
+    qq{$UMLESSONS_URL/2k/manage/resource/setup/$UNIT_URL_NAME/$name}, {
       choice => 'text',
       op     => 'Continue...',
     }
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/resource/create/sph_algebra_assesment/$name}, {
+    qq{$UMLESSONS_URL/2k/manage/resource/create/$UNIT_URL_NAME/$name}, {
       choice          => 'text',
       title           => $resource_title,
       keywords        => $EMPTY,
@@ -209,40 +220,93 @@ EOF
     }
   );
 
-  my ($url, $id) = split(/\$/, $agent->response->previous->header('location'));
+  (my $id = $agent->response->previous->header('location')) =~ s/^.*\$(.*)$/$1/g;
 
   if ($agent->success) {
-    say qq{Create resource ($resource_title - $id) successfully};
+    say qq{Created resource ($resource_title - $id) successfully};
   }
 
   return $id;
 }
 
 sub create_question {
-  my ($id, $name, $question) = @_;
+  my ($rid, $name, $question) = @_;
+
+  my $question_text = format_latex_for_mathjax($question->{question});
+  my $answers       = scalar keys %{$question->{answers}};
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/inquiry/create/sph_algebra_assesment/$name}, {
-      choice                               => 'multiple_choice',
-      op                                   => 'Save',
-      question                             => $question,
-      'multiple_choice:numberAnswers'      => '4',
-      'multiple_response:numberAnswers'    => '4',
-      'opinion_poll:numberAnswers'         => '5',
-      'question/align'                     => 'ABOVE',
-      'question/resource'                  => $id,
-      'rating_scale_queries:numberAnswers' => '5',
-      'rating_scales:numberAnswers'        => '1',
+    qq{$UMLESSONS_URL/2k/manage/inquiry/create/$UNIT_URL_NAME/$name}, {
+      choice                            => 'multiple_choice',
+      op                                => 'Save',
+      question                          => $question_text,
+      'multiple_choice:numberAnswers'   => $answers,
+      'multiple_response:numberAnswers' => $answers,
+      'question/resource'               => $rid,
+      'question/align'                  => 'ABOVE',
     }
   );
 
-  # TODO change name of the question to something reasonable
-  # TODO get question id from url string like resources
+  (my $id = $agent->response->previous->header('location')) =~ s/^.*\$([\w]+)(?:\?.*)?$/$1/g;
 
-  return;
+  $agent->post(
+    qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_settings/unit_4697/quiz_001\$${id}#}, {
+      correctCaption        => 'Correct!',
+      feedback              => 'TRUE',
+      firstItemFirst        => 'FALSE',
+      generalFeedback       => 'FALSE',
+      howManyItemsDisplayed => 'ALL',
+      incorrectCaption      => 'This is not correct.',
+      keywords              => $EMPTY,
+      lastItemLast          => 'FALSE',
+      op                    => 'save',
+      pointsWorth           => '1',
+      randomization         => 'FALSE',
+      repeatQuestion        => 'FALSE',
+      responseLabelStyle    => 'alpha',
+      setDefault            => 'FALSE',
+      showTitle             => 'FALSE',
+      specificFeedback      => 'TRUE',
+      title                 => qq[Q: $question->{number}],
+    }
+  );
+
+  return $id;
 }
 
 sub add_answers {
-  my ($question) = @_;
+  my ($id, $name, $answers) = @_;
+
+  my $answer_number = 1;
+  foreach my $answer (sort keys %{$answers}) {
+    my $roman       = lc(roman($answer_number));
+    my $order       = qq{c$roman.$answer_number};
+    my $answer_text = $answers->{$answer};
+    
+    my $count = ()= $answer_text =~ /\$/g;
+    if ($count > 1) {
+      $answer_text =~ s/\$//g;
+    }
+
+    $agent->post(
+      qq[$UMLESSONS_URL/2k/manage/multiple_choice/update_content/$UNIT_URL_NAME/$name\$${id}#answers.c$roman], {
+        op                  => 'save',
+        order               => $order,
+        qq{order.$order}    => $order,
+        response            => format_latex_for_mathjax($answer_text),
+        section             => qq{answers.c$roman},
+        correct             => 'FALSE',
+        feedback            => $EMPTY,
+        'response/align'    => 'LEFT',
+        'response/resource' => 'none',
+        'feedback/align'    => 'LEFT',
+        'feedback/resource' => 'none',
+      }
+    );
+
+    say "Added answer $answer to question $id";
+    $answer_number++;
+  }
+
   return;
 }
