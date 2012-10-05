@@ -1,9 +1,5 @@
 #!/usr/bin/env perl
 
-# TODO - add getopt for latex file and possbily more
-# TODO - answers are in a separate file and need to be imported
-# TODO - get directions and summary from template file
-#
 # FIXME - question 11 is a parsing issue with % signs in the question
 # FIXME - questions 24,25 use images, will have to figure this out
 # FIXME - parsing the latex results is giving an undef in the array, no idea why though
@@ -21,41 +17,45 @@ use Carp qw(croak);
 use English qw(-no_match_vars);
 use List::MoreUtils qw(apply);
 use Text::Roman;
-use Data::Dumper;
+use Config::Tiny;
+use Getopt::Compact;
+use URI;
 
 Readonly::Scalar my $EMPTY         => q{};
 Readonly::Scalar my $BANG          => q{!};
+Readonly::Scalar my $SPACE         => q{ };
 Readonly::Scalar my $WEBLOGIN_URL  => q{https://weblogin.umich.edu};
 Readonly::Scalar my $COSIGN_CGI    => q{cosign-bin/cosign.cgi};
 Readonly::Scalar my $UMLESSONS_URL => q{https://lessons.ummu.umich.edu};
 Readonly::Scalar my $UNIT_URL_NAME => q{sph_algebra_assesment};
-Readonly::Scalar my $DIRECTIONS    => q{Hello World};
-Readonly::Scalar my $SUMMARY       => q{Goodbye World};
 
-my $latex       = $ARGV[0];
-my $lesson_name = q{2013};
-my $title       = q{SPH Algebra Assesment for 2013};
-my $agent       = get_login_agent();
-my $parsed_ref  = parse_latex($latex);
+## no tidy
+my $opts = Getopt::Compact->new(
+  struct => [
+    [[qw(c config)], q(Config file),        q(=s)],
+    [[qw(t test)],   q(Test name to build), q(=s)],
+  ]
+)->opts();
+## use tidy
+my $config     = Config::Tiny->read($opts->{config});
+my $test       = $config->{$opts->{test}};
+my $agent      = get_login_agent();
+my $answer_ref = parse_answers($test->{answers});
+my $parsed_ref = parse_latex($test->{test}, $answer_ref);
 
-create_lesson($lesson_name, $title);
+create_lesson($test);
 
-my $resource_id = create_resource($lesson_name);
+my $resource_id = create_resource($test->{lesson_name});
 
 foreach my $question (@{$parsed_ref}) {
   next if not $question;
 
-  my $question_id = create_question($resource_id, $lesson_name, $question);
+  my $question_id = create_question($resource_id, $test->{lesson_name}, $question);
   say "Created question #$question->{number} - $question_id";
 
-  add_answers($question_id, $lesson_name, $question->{answers});
+  add_answers($question_id, $test->{lesson_name}, $question->{correct}, $question->{answers});
   my $answer_count = scalar keys %{$question->{answers}};
   say "Added $answer_count to question #$question->{number}";
-}
-
-sub format_latex_for_mathjax {
-  my ($latex) = @_;
-  return sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $latex);
 }
 
 sub get_login_agent {
@@ -82,11 +82,11 @@ sub get_login_agent {
 }
 
 sub parse_latex {
-  my ($test)       = @_;
-  my @questions    = ();
-  my $question_ref = [];
-  my $contents     = read_file($test);
-  my $temp_fh      = File::Temp->new();
+  my ($file,$answers) = @_;
+  my @questions       = ();
+  my $question_ref    = [];
+  my $contents        = read_file($file);
+  my $temp_fh         = File::Temp->new();
 
   $contents =~ s/^(?:(.*)?\\begin{document})|(?:\\end{document})$//gs;
 
@@ -101,7 +101,8 @@ sub parse_latex {
 
     if ($question =~ /^(\d+)/) {
       $number = $1;
-      $question_ref->[$number]->{number} = $number;
+      $question_ref->[$number]->{number}  = $number;
+      $question_ref->[$number]->{correct} = $answers->{$number};
     } else {
       next;
     }
@@ -125,7 +126,7 @@ sub parse_latex {
           when ($line =~ /^$number([A-D])\n/) {
             my $answer = $1;
             $line =~ s/^${number}${answer}\n(.*)(?:(?:\s+[\\]+\s+[\n%]+)|\n+$)/$1/g;
-            $question_ref->[$number]->{answers}->{$answer} = $line;
+            $question_ref->[$number]->{answers}->{lc($answer)} = $line;
           }
           default {
           }
@@ -137,8 +138,40 @@ sub parse_latex {
   return $question_ref;
 }
 
+sub parse_answers {
+  my ($file) = @_;
+
+  my $answers = {};
+  foreach my $line (read_file($file)) {
+    chomp($line);
+    next if $line !~ /^\d+/;
+    my ($number, $answer) = split(/$SPACE/, $line);
+    $answers->{$number} = $answer;
+  }
+
+  return $answers;
+}
+
+sub format_latex_for_mathjax {
+  my ($latex) = @_;
+  return sprintf(qq{<!-- html -->\n\\( %s \\)\n<!-- html -->\n}, $latex);
+}
+
+sub get_response_id {
+  my ($url) = @_;
+
+  my $uri = URI->new($url);
+  my ($path, $id) = split(/\$/, $uri->path);
+
+  return $id;
+}
+
 sub create_lesson {
-  my ($name, $lesson_title) = @_;
+  my ($test_conf) = @_;
+  my $directions  = read_file($test_conf->{directions});
+  my $summary     = read_file($test_conf->{summary});
+  my $name        = $test_conf->{lesson_name};
+  my $title       = $test_conf->{lesson_title};
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/lesson/setup/$UNIT_URL_NAME}, {
@@ -169,13 +202,13 @@ sub create_lesson {
       showFooter            => 'TRUE',
       showLinks             => 'TRUE',
       style                 => 'quiz',
-      title                 => $lesson_title,
+      title                 => $title,
     }
   );
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/lesson/update_content/$UNIT_URL_NAME/$name#directions}, {
-      directionsText => $DIRECTIONS,
+      directionsText => $directions,
       op             => 'save',
       section        => 'directions',
     }
@@ -183,7 +216,7 @@ sub create_lesson {
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/lesson/update_content/$UNIT_URL_NAME/$name#summary}, {
-      summaryText => $SUMMARY,
+      summaryText => $summary,
       op          => 'save',
       section     => 'summary',
     }
@@ -226,7 +259,7 @@ EOF
     }
   );
 
-  (my $id = $agent->response->previous->header('location')) =~ s/^.*\$(.*)$/$1/g;
+  my $id = get_response_id($agent->response->previous->header('location'));
 
   if ($agent->success) {
     say qq{Created resource ($resource_title - $id) successfully};
@@ -253,8 +286,7 @@ sub create_question {
     }
   );
 
-  (my $id = $agent->response->previous->header('location')) =~ s/^.*\$([\w]+)(?:\?.*)?$/$1/g;
-
+  my $id = get_response_id($agent->response->previous->header('location'));
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_settings/unit_4697/quiz_001\$${id}#}, {
       correctCaption        => 'Correct!',
@@ -281,7 +313,7 @@ sub create_question {
 }
 
 sub add_answers {
-  my ($id, $name, $answers) = @_;
+  my ($id, $name, $correct_answer, $answers) = @_;
 
   my $answer_number = 1;
   foreach my $answer (sort keys %{$answers}) {
@@ -303,7 +335,7 @@ sub add_answers {
         qq{order.$order}    => $order,
         response            => format_latex_for_mathjax($answer_text),
         section             => qq{answers.c$roman},
-        correct             => 'FALSE',
+        correct             => ($answer eq $correct_answer) ? 'TRUE' : 'FALSE',
         feedback            => $EMPTY,
         'response/align'    => 'LEFT',
         'response/resource' => 'none',
