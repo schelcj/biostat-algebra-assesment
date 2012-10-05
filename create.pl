@@ -123,12 +123,14 @@ sub parse_latex {
 
             $question_ref->[$number]->{question} = join(qq{\n}, @lines);
           }
-          when ($line =~ /^$number([A-D])\n/) {
+          when ($line =~ /^$number([A-D])\s*\n/) {
             my $answer = $1;
             $line =~ s/^${number}${answer}\n(.*)(?:(?:\s+[\\]+\s+[\n%]+)|\n+$)/$1/g;
             $question_ref->[$number]->{answers}->{lc($answer)} = $line;
           }
           default {
+            use Data::Dumper;
+            print Dumper $line;
           }
         }
       }
