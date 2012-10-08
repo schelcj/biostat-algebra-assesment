@@ -1,6 +1,5 @@
 #!/usr/bin/env perl
 
-# FIXME - question 11 is a parsing issue with % signs in the question
 # FIXME - questions 24,25 use images, will have to figure this out
 # FIXME - parsing the latex results is giving an undef in the array, no idea why though
 # FIXME - second pass on parsing the latex is causing issues using % as line separartor
@@ -113,7 +112,7 @@ sub parse_latex {
       foreach my $line ($question_fh->getlines) {
 
         given ($line) {
-          when ($line =~ /^$number\n/) {
+          when (/^$number\n/) {
             my @parts = grep {/^\\/} split(/\n/, $line);
             my @lines;
             for (@parts) {
@@ -123,14 +122,15 @@ sub parse_latex {
 
             $question_ref->[$number]->{question} = join(qq{\n}, @lines);
           }
-          when ($line =~ /^$number([A-D])\s*\n/) {
+          when (/^$number([A-D])\s*\n/) {
             my $answer = $1;
             $line =~ s/^${number}${answer}\n(.*)(?:(?:\s+[\\]+\s+[\n%]+)|\n+$)/$1/g;
             $question_ref->[$number]->{answers}->{lc($answer)} = $line;
           }
+          when (/^(\s+.*)\s+\\\\[\n]/) {
+            $question_ref->[$number]->{question} .= $1;
+          }
           default {
-            use Data::Dumper;
-            print Dumper $line;
           }
         }
       }
