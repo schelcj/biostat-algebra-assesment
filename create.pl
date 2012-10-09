@@ -16,6 +16,7 @@ use Text::Roman;
 use Config::Tiny;
 use Getopt::Compact;
 use URI;
+use Data::Dumper;
 
 Readonly::Scalar my $EMPTY          => q{};
 Readonly::Scalar my $BANG           => q{!};
@@ -31,15 +32,21 @@ my $opts = Getopt::Compact->new(
   struct => [
     [[qw(c config)], q(Config file),        q(=s)],
     [[qw(t test)],   q(Test name to build), q(=s)],
+    [[qw(p parse_only)], q(Parse the test and dump to stdout)],
   ]
 )->opts();
 ## use tidy
 my $config     = Config::Tiny->read($opts->{config});
 my $test       = $config->{$opts->{test}};
-my $agent      = get_login_agent();
 my $answer_ref = parse_answers($test->{answers});
 my $parsed_ref = parse_latex($test->{test}, $answer_ref);
 
+if ($opts->{parse_only}) {
+  print Dumper $parsed_ref;
+  exit;
+}
+
+my $agent = get_login_agent();
 create_lesson($test);
 
 my $resource_id = create_resource($test->{lesson_name});
@@ -289,8 +296,8 @@ sub create_question {
   my $question_text = format_latex_for_mathjax($question->{question});
   my $answers       = scalar keys %{$question->{answers}};
 
-
   if (exists $question->{resource}) {
+
     # TODO test resource for any images to add to the question
   }
 
