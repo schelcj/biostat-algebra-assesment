@@ -1,9 +1,6 @@
 #!/usr/bin/env perl
 
-# FIXME - questions 24,25 use images, will have to figure this out
 # FIXME - parsing the latex results is giving an undef in the array, no idea why though
-# FIXME - second pass on parsing the latex is causing issues using % as line separartor
-#         need to handle the default case in the given/when phase
 
 use Modern::Perl;
 use WWW::Mechanize;
@@ -20,13 +17,14 @@ use Config::Tiny;
 use Getopt::Compact;
 use URI;
 
-Readonly::Scalar my $EMPTY         => q{};
-Readonly::Scalar my $BANG          => q{!};
-Readonly::Scalar my $SPACE         => q{ };
-Readonly::Scalar my $WEBLOGIN_URL  => q{https://weblogin.umich.edu};
-Readonly::Scalar my $COSIGN_CGI    => q{cosign-bin/cosign.cgi};
-Readonly::Scalar my $UMLESSONS_URL => q{https://lessons.ummu.umich.edu};
-Readonly::Scalar my $UNIT_URL_NAME => q{sph_algebra_assesment};
+Readonly::Scalar my $EMPTY          => q{};
+Readonly::Scalar my $BANG           => q{!};
+Readonly::Scalar my $SPACE          => q{ };
+Readonly::Scalar my $WEBLOGIN_URL   => q{https://weblogin.umich.edu};
+Readonly::Scalar my $COSIGN_CGI     => q{cosign-bin/cosign.cgi};
+Readonly::Scalar my $UMLESSONS_URL  => q{https://lessons.ummu.umich.edu};
+Readonly::Scalar my $UNIT_URL_NAME  => q{sph_algebra_assesment};
+Readonly::Scalar my $GRAPHIC_REGEXP => qr/^(.*)\\includegraphics\[[\w\.\=]+\]\{([^}]+)}(.*)$/s;
 
 ## no tidy
 my $opts = Getopt::Compact->new(
@@ -81,11 +79,12 @@ sub get_login_agent {
 }
 
 sub parse_latex {
-  my ($file,$answers) = @_;
-  my @questions       = ();
-  my $question_ref    = [];
-  my $contents        = read_file($file);
-  my $temp_fh         = File::Temp->new();
+  my ($file, $answers) = @_;
+
+  my @questions    = ();
+  my $question_ref = [];
+  my $contents     = read_file($file);
+  my $temp_fh      = File::Temp->new();
 
   $contents =~ s/^(?:(.*)?\\begin{document})|(?:\\end{document})$//gs;
 
@@ -99,7 +98,7 @@ sub parse_latex {
     my $number;
 
     if ($question =~ /^(\d+)/) {
-      $number = $1;
+      $number                             = $1;
       $question_ref->[$number]->{number}  = $number;
       $question_ref->[$number]->{correct} = $answers->{$number};
     } else {
@@ -125,7 +124,7 @@ sub parse_latex {
           when (/^$number([A-D])\s*\n/) {
             my $answer = $1;
             $line =~ s/^${number}${answer}\n(.*)(?:(?:\s+[\\]+\s+[\n%]+)|\n+$)/$1/g;
-            $question_ref->[$number]->{answers}->{lc($answer)} = $line;
+            $question_ref->[$number]->{answers}->{lc($answer)} = {text => $line};
           }
           when (/^(\s+.*)\s+\\\\[\n]/) {
             $question_ref->[$number]->{question} .= $1;
@@ -133,6 +132,20 @@ sub parse_latex {
           default {
           }
         }
+      }
+    }
+
+    if ($question_ref->[$number]->{question} =~ /$GRAPHIC_REGEXP/) {
+      $question_ref->[$number]->{question} = $1 . $3;
+      $question_ref->[$number]->{resource} = $2;
+    }
+
+    foreach my $key (sort keys %{$question_ref->[$number]->{answers}}) {
+      if ($question_ref->[$number]->{answers}->{$key}->{text} =~ /$GRAPHIC_REGEXP/) {
+        $question_ref->[$number]->{answers}->{$key} = {
+          text     => $1 . $3,
+          resource => $2,
+        };
       }
     }
   }
@@ -276,6 +289,7 @@ sub create_question {
   my $question_text = format_latex_for_mathjax($question->{question});
   my $answers       = scalar keys %{$question->{answers}};
 
+  # TODO test resource for any images to add to the question
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/inquiry/create/$UNIT_URL_NAME/$name}, {
       choice                            => 'multiple_choice',
@@ -317,6 +331,7 @@ sub create_question {
 sub add_answers {
   my ($id, $name, $correct_answer, $answers) = @_;
 
+  # TODO change in the structure of the answers needs to be accounted for
   my $answer_number = 1;
   foreach my $answer (sort keys %{$answers}) {
     my $roman       = lc(roman($answer_number));
