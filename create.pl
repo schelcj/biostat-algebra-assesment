@@ -289,7 +289,11 @@ sub create_question {
   my $question_text = format_latex_for_mathjax($question->{question});
   my $answers       = scalar keys %{$question->{answers}};
 
-  # TODO test resource for any images to add to the question
+
+  if (exists $question->{resource}) {
+    # TODO test resource for any images to add to the question
+  }
+
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/inquiry/create/$UNIT_URL_NAME/$name}, {
       choice                            => 'multiple_choice',
@@ -336,7 +340,7 @@ sub add_answers {
   foreach my $answer (sort keys %{$answers}) {
     my $roman       = lc(roman($answer_number));
     my $order       = qq{c$roman.$answer_number};
-    my $answer_text = $answers->{$answer};
+    my $answer_text = $answers->{$answer}->{text};
 
     ## no tidy
     my $count = ()= $answer_text =~ /\$/g;
@@ -350,7 +354,7 @@ sub add_answers {
         op                  => 'save',
         order               => $order,
         qq{order.$order}    => $order,
-        response            => format_latex_for_mathjax($answer_text),
+        response            => ($answer_text) ? format_latex_for_mathjax($answer_text) : $EMPTY,
         section             => qq{answers.c$roman},
         correct             => ($answer eq $correct_answer) ? 'TRUE' : 'FALSE',
         feedback            => $EMPTY,
