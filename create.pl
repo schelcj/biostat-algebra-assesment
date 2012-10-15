@@ -2,6 +2,7 @@
 
 # FIXME - parsing the latex results is giving an undef in the array, no idea why though
 
+use FindBin qw($Bin);
 use Modern::Perl;
 use WWW::Mechanize;
 use Net::Netrc;
@@ -17,6 +18,8 @@ use Config::Tiny;
 use Getopt::Compact;
 use URI;
 use Data::Dumper;
+use File::Spec;
+use LWP::UserAgent;
 
 Readonly::Scalar my $EMPTY          => q{};
 Readonly::Scalar my $BANG           => q{!};
@@ -49,12 +52,20 @@ if ($opts->{parse_only}) {
 my $agent = get_login_agent();
 create_lesson($test);
 
-my $resource_id = create_resource($test->{lesson_name});
+my $mathjax_title = q{MathJax};
+my $mathjax_text  = <<'EOF';
+<!-- html -->
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+<!-- html -->
+EOF
+
+my $mathjax_resource_id = create_txt_resource($test->{lesson_name}, $mathjax_title, $mathjax_text);
 
 foreach my $question (@{$parsed_ref}) {
   next if not $question;
+  next if $question->{number} != 24;
 
-  my $question_id = create_question($resource_id, $test->{lesson_name}, $question);
+  my $question_id = create_question($mathjax_resource_id, $test->{lesson_name}, $question);
   say "Created question #$question->{number} - $question_id";
 
   add_answers($question_id, $test->{lesson_name}, $question->{correct}, $question->{answers});
@@ -251,43 +262,73 @@ sub create_lesson {
   return;
 }
 
-sub create_resource {
-  my ($name) = @_;
+sub create_img_resource {
+  return _create_resource('image', @_);
+}
 
-  my $resource_title = 'Mathjax';
-  my $resource       = <<'EOF';
-<!-- html -->
-<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
-<!-- html -->
-EOF
+sub create_txt_resource {
+  return _create_resource('text', @_);
+}
+
+sub _create_resource {
+  my ($type, $name, $title, $resource) = @_;
+  croak qq{Invalid resource type ($type)!} if $type !~ /^(?:image|text)$/;
+  my $url = qq{$UMLESSONS_URL/2k/manage/resource/create/$UNIT_URL_NAME/$name};
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/resource/setup/$UNIT_URL_NAME/$name}, {
-      choice => 'text',
+      choice => $type,
       op     => 'Continue...',
     }
   );
 
-  $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/resource/create/$UNIT_URL_NAME/$name}, {
-      choice          => 'text',
-      title           => $resource_title,
-      keywords        => $EMPTY,
-      border          => '0',
-      borderBgColor   => 'black',
-      borderFillColor => 'none',
-      op              => 'Save',
-      excerpt         => $resource,
-    }
-  );
+  my $param_ref = {
+    choice          => $type,
+    title           => $title,
+    keywords        => $EMPTY,
+    border          => '0',
+    borderBgColor   => 'black',
+    borderFillColor => 'none',
+    op              => 'Save',
+  };
 
-  my $id = get_response_id($agent->response->previous->header('location'));
+  my $id;
+  given ($type) {
+    when (/text/) {
+      $param_ref->{excerpt} = $resource;
+      $agent->post($url, $param_ref);
+      $id = get_response_id($agent->response->previous->header('location'));
+    }
+    when (/image/) {
+      # FIXME some random bug server side is eating our uploads.
+      #       for the time being upload by hand and find the resource
+      #       that matches $title and return that id instead.
+      #
+      #       Well this poses a problem as the resources haven't been
+      #       created yet. what a freaking mess.
+      #
+      # $param_ref->{upload_file} = $resource;
+      # $agent->agent_alias('Windows IE 6');
+      # $agent->form_name('fm');
+      # map { $agent->field($_, $param_ref->{$_}) } keys %{$param_ref};
+      # my $res = $agent->submit();
+
+      $id = find_resource($title);
+    }
+  }
 
   if ($agent->success) {
-    say qq{Created resource ($resource_title - $id) successfully};
+    say qq{Created resource ($title - $id) successfully};
   }
 
   return $id;
+}
+
+sub find_resource {
+  my ($res_title) = @_;
+  # html body center table tbody tr td form p table tbody tr td b a
+  $agent->get(qq{$UMLESSONS_URL/2k/manage/lesson/list_resources/sph_algebra_assesment/2013});
+  return 12345; # just like my luggage
 }
 
 sub create_question {
@@ -295,11 +336,7 @@ sub create_question {
 
   my $question_text = format_latex_for_mathjax($question->{question});
   my $answers       = scalar keys %{$question->{answers}};
-
-  if (exists $question->{resource}) {
-
-    # TODO test resource for any images to add to the question
-  }
+  my $param_ref     = {};
 
   $agent->post(
     qq{$UMLESSONS_URL/2k/manage/inquiry/create/$UNIT_URL_NAME/$name}, {
@@ -312,6 +349,24 @@ sub create_question {
       'question/align'                  => 'ABOVE',
     }
   );
+  my $question_id = get_response_id($agent->response->previous->header('location'));
+
+  if (exists $question->{resource}) {
+    my $image = File::Spec->join($Bin, $test->{assets_dir}, $question->{resource} . '.jpg');
+    croak "Image asset ($image) does not exist" if not -e $image;
+
+    my $img_rid = create_img_resource($name, $question->{resource}, $image);
+
+    $agent->post(
+      qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_content/$UNIT_URL_NAME/$name\$$question_id#},
+      op                  => 'Save',
+      question            => $question_text,
+      section             => 'question',
+      'question/resource' => $img_rid,
+      'question/resource' => $rid,
+      'question/align'    => 'BELOW'
+    );
+  }
 
   my $id = get_response_id($agent->response->previous->header('location'));
   $agent->post(
