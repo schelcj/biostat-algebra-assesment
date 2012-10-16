@@ -354,7 +354,7 @@ sub add_answers {
       op                  => 'save',
       order               => $order,
       qq{order.$order}    => $order,
-      response            => ($answer_text) ? format_latex_for_mathjax($answer_text) : $EMPTY,
+      response            => ($answer_text ne $EMPTY) ? format_latex_for_mathjax($answer_text) : $EMPTY,
       section             => qq{answers.c$roman},
       correct             => ($answer eq $correct_answer) ? 'TRUE' : 'FALSE',
       feedback            => $EMPTY,
