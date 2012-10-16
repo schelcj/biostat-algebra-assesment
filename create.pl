@@ -27,8 +27,8 @@ Readonly::Scalar my $SPACE          => q{ };
 Readonly::Scalar my $WEBLOGIN_URL   => q{https://weblogin.umich.edu};
 Readonly::Scalar my $COSIGN_CGI     => q{cosign-bin/cosign.cgi};
 Readonly::Scalar my $UNIT_URL_NAME  => q{sph_algebra_assesment};
-Readonly::Scalar my $UMLESSONS_URL  => q{https://lessons.ummu.umich.edu};
-Readonly::Scalar my $RESOURCES_URL  => qq{$UMLESSONS_URL/2k/manage/unit/list_resources/$UNIT_URL_NAME};
+Readonly::Scalar my $UMLESSONS_URL  => q{https://lessons.ummu.umich.edu/2k/manage};
+Readonly::Scalar my $RESOURCES_URL  => qq{$UMLESSONS_URL/unit/list_resources/$UNIT_URL_NAME};
 Readonly::Scalar my $GRAPHIC_REGEXP => qr/^(.*)\\includegraphics\[[\w\.\=]+\]\{([^}]+)}(.*)$/s;
 
 ## no tidy
@@ -76,7 +76,7 @@ sub get_login_agent {
     qq{$WEBLOGIN_URL/$COSIGN_CGI}, {
       login    => $mach->login,
       password => $mach->password,
-      ref      => qq{$UMLESSONS_URL/2k/manage/workspace/reader},
+      ref      => qq{$UMLESSONS_URL/workspace/reader},
       service  => 'cosign-lessons.ummu',
     }
   );
@@ -201,14 +201,14 @@ sub create_lesson {
   my $title       = $test_conf->{lesson_title};
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/setup/$UNIT_URL_NAME}, {
+    qq{$UMLESSONS_URL/lesson/setup/$UNIT_URL_NAME}, {
       op    => 'Continue...',
       style => 'quiz',
     }
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_settings/$UNIT_URL_NAME#lesson}, {
+    qq{$UMLESSONS_URL/lesson/update_settings/$UNIT_URL_NAME#lesson}, {
       charset               => $BANG,
       defaultShowTitle      => 'FALSE',
       firstItemFirst        => 'TRUE',
@@ -234,7 +234,7 @@ sub create_lesson {
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/$UNIT_URL_NAME/$name#directions}, {
+    qq{$UMLESSONS_URL/lesson/update_content/$UNIT_URL_NAME/$name#directions}, {
       directionsText => $directions,
       op             => 'save',
       section        => 'directions',
@@ -242,7 +242,7 @@ sub create_lesson {
   );
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/lesson/update_content/$UNIT_URL_NAME/$name#summary}, {
+    qq{$UMLESSONS_URL/lesson/update_content/$UNIT_URL_NAME/$name#summary}, {
       summaryText => $summary,
       op          => 'save',
       section     => 'summary',
@@ -271,7 +271,7 @@ sub create_question {
   my $param_ref     = {};
 
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/inquiry/create/$UNIT_URL_NAME/$name}, {
+    qq{$UMLESSONS_URL/inquiry/create/$UNIT_URL_NAME/$name}, {
       choice                            => 'multiple_choice',
       op                                => 'Save',
       question                          => $question_text,
@@ -290,7 +290,7 @@ sub create_question {
     my $img_rid = find_resource($name, $question->{resource});
 
     $agent->post(
-      qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_content/$UNIT_URL_NAME/$name\$$question_id#},
+      qq{$UMLESSONS_URL/multiple_choice/update_content/$UNIT_URL_NAME/$name\$$question_id#},
       op                  => 'Save',
       question            => $question_text,
       section             => 'question',
@@ -302,7 +302,7 @@ sub create_question {
 
   my $id = get_response_id($agent->response->previous->header('location'));
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_settings/$UNIT_URL_NAME/$name\$${id}#}, {
+    qq{$UMLESSONS_URL/multiple_choice/update_settings/$UNIT_URL_NAME/$name\$${id}#}, {
       correctCaption        => 'You got it!',
       feedback              => 'TRUE',
       firstItemFirst        => 'FALSE',
@@ -344,7 +344,7 @@ sub add_answers {
     }
 
     $agent->post(
-      qq[$UMLESSONS_URL/2k/manage/multiple_choice/update_content/$UNIT_URL_NAME/$name\$${id}#answers.c$roman], {
+      qq[$UMLESSONS_URL/multiple_choice/update_content/$UNIT_URL_NAME/$name\$${id}#answers.c$roman], {
         op                  => 'save',
         order               => $order,
         qq{order.$order}    => $order,
