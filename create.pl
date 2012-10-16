@@ -1,7 +1,6 @@
 #!/usr/bin/env perl
 
 # FIXME - parsing the latex results is giving an undef in the array, no idea why though
-# FIXME - question 5 missing answer for D
 # FIXME - question 11 still has escapes on % and $
 
 use FindBin qw($Bin);
@@ -20,7 +19,6 @@ use Config::Tiny;
 use Getopt::Compact;
 use URI;
 use Data::Dumper;
-use File::Spec;
 use LWP::UserAgent;
 
 Readonly::Scalar my $EMPTY          => q{};
@@ -286,9 +284,6 @@ sub create_question {
   my $question_id = get_response_id($agent->response->previous->header('location'));
 
   if (exists $question->{resource}) {
-    my $image = File::Spec->join($Bin, $test->{assets_dir}, $question->{resource} . '.jpg');
-    croak "Image asset ($image) does not exist" if not -e $image;
-
     my $img_rid = find_resource($name, $question->{resource});
 
     $agent->post(
