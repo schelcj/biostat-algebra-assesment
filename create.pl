@@ -290,20 +290,21 @@ sub create_question {
     my $img_rid = find_resource($name, $question->{resource});
 
     $agent->post(
-      qq{$UMLESSONS_URL/multiple_choice/update_content/$UNIT_URL_NAME/$name\$$question_id#},
-      op                  => 'Save',
-      question            => $question_text,
-      section             => 'question',
-      'question/resource' => $img_rid,
-      'question/resource' => $rid,
-      'question/align'    => 'BELOW'
+      qq{$UMLESSONS_URL/multiple_choice/update_content/$UNIT_URL_NAME/$name\$$question_id#}, [
+        op                  => 'Save',
+        question            => $question_text,
+        section             => 'question',
+        'question/resource' => $img_rid,
+        'question/resource' => $rid,
+        'question/align'    => 'BELOW'
+      ]
     );
   }
 
   my $id = get_response_id($agent->response->previous->header('location'));
   $agent->post(
     qq{$UMLESSONS_URL/multiple_choice/update_settings/$UNIT_URL_NAME/$name\$${id}#}, {
-      correctCaption        => 'You got it!',
+      correctCaption        => 'Correct!',
       feedback              => 'TRUE',
       firstItemFirst        => 'FALSE',
       generalFeedback       => 'FALSE',
