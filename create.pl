@@ -1,6 +1,5 @@
 #!/usr/bin/env perl
 
-# FIXME - parsing the latex results is giving an undef in the array, no idea why though
 # FIXME - question 11 still has escapes on % and $
 
 use FindBin qw($Bin);
