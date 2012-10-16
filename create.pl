@@ -58,7 +58,6 @@ croak 'Could not find mathjax resource' if not $mathjax_resource_id;
 
 foreach my $question (@{$parsed_ref}) {
   next if not $question;
-  next if $question->{number} != 24;
 
   my $question_id = create_question($mathjax_resource_id, $test->{lesson_name}, $question);
   say "Created question #$question->{number} - $question_id";
@@ -257,68 +256,6 @@ sub create_lesson {
   return;
 }
 
-sub create_img_resource {
-  return _create_resource('image', @_);
-}
-
-sub create_txt_resource {
-  return _create_resource('text', @_);
-}
-
-sub _create_resource {
-  my ($type, $name, $title, $resource) = @_;
-  croak qq{Invalid resource type ($type)!} if $type !~ /^(?:image|text)$/;
-  my $url = qq{$UMLESSONS_URL/2k/manage/resource/create/$UNIT_URL_NAME/$name};
-
-  $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/resource/setup/$UNIT_URL_NAME/$name}, {
-      choice => $type,
-      op     => 'Continue...',
-    }
-  );
-
-  my $param_ref = {
-    choice          => $type,
-    title           => $title,
-    keywords        => $EMPTY,
-    border          => '0',
-    borderBgColor   => 'black',
-    borderFillColor => 'none',
-    op              => 'Save',
-  };
-
-  my $id;
-  given ($type) {
-    when (/text/) {
-      $param_ref->{excerpt} = $resource;
-      $agent->post($url, $param_ref);
-      $id = get_response_id($agent->response->previous->header('location'));
-    }
-    when (/image/) {
-      # FIXME some random bug server side is eating our uploads.
-      #       for the time being upload by hand and find the resource
-      #       that matches $title and return that id instead.
-      #
-      #       Well this poses a problem as the resources haven't been
-      #       created yet. what a freaking mess.
-      #
-      # $param_ref->{upload_file} = $resource;
-      # $agent->agent_alias('Windows IE 6');
-      # $agent->form_name('fm');
-      # map { $agent->field($_, $param_ref->{$_}) } keys %{$param_ref};
-      # my $res = $agent->submit();
-
-      $id = find_resource($name, $title);
-    }
-  }
-
-  if ($agent->success) {
-    say qq{Created resource ($title - $id) successfully};
-  }
-
-  return $id;
-}
-
 sub find_resource {
   my ($name, $title) = @_;
   $agent->get($RESOURCES_URL);
@@ -350,7 +287,7 @@ sub create_question {
     my $image = File::Spec->join($Bin, $test->{assets_dir}, $question->{resource} . '.jpg');
     croak "Image asset ($image) does not exist" if not -e $image;
 
-    my $img_rid = create_img_resource($name, $question->{resource}, $image);
+    my $img_rid = find_resource($name, $question->{resource});
 
     $agent->post(
       qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_content/$UNIT_URL_NAME/$name\$$question_id#},
@@ -365,8 +302,8 @@ sub create_question {
 
   my $id = get_response_id($agent->response->previous->header('location'));
   $agent->post(
-    qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_settings/unit_4697/quiz_001\$${id}#}, {
-      correctCaption        => 'Correct!',
+    qq{$UMLESSONS_URL/2k/manage/multiple_choice/update_settings/$UNIT_URL_NAME/$name\$${id}#}, {
+      correctCaption        => 'You got it!',
       feedback              => 'TRUE',
       firstItemFirst        => 'FALSE',
       generalFeedback       => 'FALSE',
