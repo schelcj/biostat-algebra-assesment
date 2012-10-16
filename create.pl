@@ -1,6 +1,8 @@
 #!/usr/bin/env perl
 
 # FIXME - parsing the latex results is giving an undef in the array, no idea why though
+# FIXME - question 5 missing answer for D
+# FIXME - question 11 still has escapes on % and $
 
 use FindBin qw($Bin);
 use Modern::Perl;
@@ -34,8 +36,8 @@ Readonly::Scalar my $GRAPHIC_REGEXP => qr/^(.*)\\includegraphics\[[\w\.\=]+\]\{(
 ## no tidy
 my $opts = Getopt::Compact->new(
   struct => [
-    [[qw(c config)], q(Config file),        q(=s)],
-    [[qw(t test)],   q(Test name to build), q(=s)],
+    [[qw(c config)],     q(Config file),                q(=s)],
+    [[qw(t test)],       q(Test name to build),         q(=s)],
     [[qw(p parse_only)], q(Parse the test and dump to stdout)],
   ]
 )->opts();
@@ -330,12 +332,12 @@ sub create_question {
 sub add_answers {
   my ($id, $name, $correct_answer, $answers) = @_;
 
-  # TODO change in the structure of the answers needs to be accounted for
   my $answer_number = 1;
   foreach my $answer (sort keys %{$answers}) {
     my $roman       = lc(roman($answer_number));
     my $order       = qq{c$roman.$answer_number};
     my $answer_text = $answers->{$answer}->{text};
+    my $resource_id = 'none';
 
     ## no tidy
     my $count = ()= $answer_text =~ /\$/g;
@@ -344,21 +346,25 @@ sub add_answers {
       $answer_text =~ s/\$//g;
     }
 
-    $agent->post(
-      qq[$UMLESSONS_URL/multiple_choice/update_content/$UNIT_URL_NAME/$name\$${id}#answers.c$roman], {
-        op                  => 'save',
-        order               => $order,
-        qq{order.$order}    => $order,
-        response            => ($answer_text) ? format_latex_for_mathjax($answer_text) : $EMPTY,
-        section             => qq{answers.c$roman},
-        correct             => ($answer eq $correct_answer) ? 'TRUE' : 'FALSE',
-        feedback            => $EMPTY,
-        'response/align'    => 'LEFT',
-        'response/resource' => 'none',
-        'feedback/align'    => 'LEFT',
-        'feedback/resource' => 'none',
-      }
-    );
+    if (exists $answers->{$answer}->{resource}) {
+      $resource_id = find_resource($name, $answers->{$answer}->{resource});
+    }
+
+    my $param_ref = [
+      op                  => 'save',
+      order               => $order,
+      qq{order.$order}    => $order,
+      response            => ($answer_text) ? format_latex_for_mathjax($answer_text) : $EMPTY,
+      section             => qq{answers.c$roman},
+      correct             => ($answer eq $correct_answer) ? 'TRUE' : 'FALSE',
+      feedback            => $EMPTY,
+      'response/align'    => 'LEFT',
+      'response/resource' => $resource_id,
+      'feedback/align'    => 'LEFT',
+      'feedback/resource' => 'none',
+    ];
+
+    $agent->post(qq[$UMLESSONS_URL/multiple_choice/update_content/$UNIT_URL_NAME/$name\$${id}#answers.c$roman], $param_ref);
 
     say "Added answer $answer to question $id";
     $answer_number++;
