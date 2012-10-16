@@ -26,8 +26,9 @@ Readonly::Scalar my $BANG           => q{!};
 Readonly::Scalar my $SPACE          => q{ };
 Readonly::Scalar my $WEBLOGIN_URL   => q{https://weblogin.umich.edu};
 Readonly::Scalar my $COSIGN_CGI     => q{cosign-bin/cosign.cgi};
-Readonly::Scalar my $UMLESSONS_URL  => q{https://lessons.ummu.umich.edu};
 Readonly::Scalar my $UNIT_URL_NAME  => q{sph_algebra_assesment};
+Readonly::Scalar my $UMLESSONS_URL  => q{https://lessons.ummu.umich.edu};
+Readonly::Scalar my $RESOURCES_URL  => qq{$UMLESSONS_URL/2k/manage/unit/list_resources/$UNIT_URL_NAME};
 Readonly::Scalar my $GRAPHIC_REGEXP => qr/^(.*)\\includegraphics\[[\w\.\=]+\]\{([^}]+)}(.*)$/s;
 
 ## no tidy
@@ -52,14 +53,8 @@ if ($opts->{parse_only}) {
 my $agent = get_login_agent();
 create_lesson($test);
 
-my $mathjax_title = q{MathJax};
-my $mathjax_text  = <<'EOF';
-<!-- html -->
-<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
-<!-- html -->
-EOF
-
-my $mathjax_resource_id = create_txt_resource($test->{lesson_name}, $mathjax_title, $mathjax_text);
+my $mathjax_resource_id = find_resource($test->{lesson_name}, q{mathjax});
+croak 'Could not find mathjax resource' if not $mathjax_resource_id;
 
 foreach my $question (@{$parsed_ref}) {
   next if not $question;
@@ -313,7 +308,7 @@ sub _create_resource {
       # map { $agent->field($_, $param_ref->{$_}) } keys %{$param_ref};
       # my $res = $agent->submit();
 
-      $id = find_resource($title);
+      $id = find_resource($name, $title);
     }
   }
 
@@ -325,10 +320,10 @@ sub _create_resource {
 }
 
 sub find_resource {
-  my ($res_title) = @_;
-  # html body center table tbody tr td form p table tbody tr td b a
-  $agent->get(qq{$UMLESSONS_URL/2k/manage/lesson/list_resources/sph_algebra_assesment/2013});
-  return 12345; # just like my luggage
+  my ($name, $title) = @_;
+  $agent->get($RESOURCES_URL);
+  my $link = $agent->find_link(text_regex => qr/^(?:${name}:)?${title}/i);
+  return ($link) ? get_response_id($link->url) : 0;
 }
 
 sub create_question {
