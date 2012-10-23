@@ -200,7 +200,7 @@ sub parse_competencies {
       $i =~ s/\s//g;
 
       my $page  = qq{Page $i};
-      my $index =  first_index {$_ eq $competency} @{$comps->{categories}};
+      my $index = first_index {$_ eq $competency} @{$comps->{categories}};
 
       push @{$comps->{competencies_map}->{$page}}, $index + 1;
     }
