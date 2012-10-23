@@ -12,17 +12,19 @@ use File::Temp;
 use IO::Scalar;
 use Carp qw(croak);
 use English qw(-no_match_vars);
-use List::MoreUtils qw(apply);
+use List::MoreUtils qw(apply first_index);
 use Text::Roman;
 use Config::Tiny;
 use Getopt::Compact;
 use URI;
 use Data::Dumper;
-use LWP::UserAgent;
+use JSON::Any;
 
 Readonly::Scalar my $EMPTY          => q{};
 Readonly::Scalar my $BANG           => q{!};
 Readonly::Scalar my $SPACE          => q{ };
+Readonly::Scalar my $COLON          => q{:};
+Readonly::Scalar my $COMA           => q{,};
 Readonly::Scalar my $WEBLOGIN_URL   => q{https://weblogin.umich.edu};
 Readonly::Scalar my $COSIGN_CGI     => q{cosign-bin/cosign.cgi};
 Readonly::Scalar my $UNIT_URL_NAME  => q{sph_algebra_assesment};
@@ -42,10 +44,11 @@ my $opts = Getopt::Compact->new(
 my $config     = Config::Tiny->read($opts->{config});
 my $test       = $config->{$opts->{test}};
 my $answer_ref = parse_answers($test->{answers});
+my $comps_ref  = parse_competencies($test->{competencies});
 my $parsed_ref = parse_latex($test->{test}, $answer_ref);
 
 if ($opts->{parse_only}) {
-  print Dumper $parsed_ref;
+  print Dumper $parsed_ref, $comps_ref;
   exit;
 }
 
@@ -176,6 +179,34 @@ sub parse_answers {
   }
 
   return $answers;
+}
+
+sub parse_competencies {
+  my ($file) = @_;
+  my $comps  = {competencies_map => {$EMPTY => [0]}};
+  my @lines  = read_file($file);
+
+  foreach my $line (@lines) {
+    chomp $line;
+    next if $line =~ /^TEST/;
+    next if $line =~ /^\s?$/;
+
+    my ($competency, $questions) = split(/$COLON/, $line);
+    my @questions = split(/$COMA/, $questions);
+
+    push @{$comps->{categories}}, $competency;
+
+    for my $i (@questions) {
+      $i =~ s/\s//g;
+
+      my $page  = qq{Page $i};
+      my $index =  first_index {$_ eq $competency} @{$comps->{categories}};
+
+      push @{$comps->{competencies_map}->{$page}}, $index + 1;
+    }
+  }
+
+  return $comps; 
 }
 
 sub format_latex_for_mathjax {
