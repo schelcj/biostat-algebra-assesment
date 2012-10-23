@@ -183,8 +183,8 @@ sub parse_answers {
 
 sub parse_competencies {
   my ($file) = @_;
-  my $comps  = {competencies_map => {$EMPTY => [0]}};
-  my @lines  = read_file($file);
+  my $comps = {competencies_map => {$EMPTY => [0]}};
+  my @lines = read_file($file);
 
   foreach my $line (@lines) {
     chomp $line;
@@ -199,14 +199,13 @@ sub parse_competencies {
     for my $i (@questions) {
       $i =~ s/\s//g;
 
-      my $page  = qq{Page $i};
-      my $index = first_index {$_ eq $competency} @{$comps->{categories}};
+      my $page = qq{Page $i};
 
-      push @{$comps->{competencies_map}->{$page}}, $index + 1;
+      push @{$comps->{competencies_map}->{$page}}, first_index {$_ eq $competency} @{$comps->{categories}};
     }
   }
 
-  return $comps; 
+  return $comps;
 }
 
 sub format_latex_for_mathjax {
@@ -271,12 +270,20 @@ sub create_lesson {
     }
   );
 
+  my $jquery_resource_id       = find_resource($name, q{Jquery});
+  my $competencies_resource_id = find_resource($name, q{Competencies});
+  my $comp_map_resource_id     = create_competencies_resource($comps_ref);
+
   $agent->post(
-    qq{$UMLESSONS_URL/lesson/update_content/$UNIT_URL_NAME/$name#summary}, {
-      summaryText => $summary,
-      op          => 'save',
-      section     => 'summary',
-    }
+    qq{$UMLESSONS_URL/lesson/update_content/$UNIT_URL_NAME/$name#summary}, [
+      summaryText            => $summary,
+      op                     => 'save',
+      section                => 'summary',
+      'summaryText/align'    => 'ABOVE',
+      'summaryText/resource' => $jquery_resource_id,
+      'summaryText/resource' => $competencies_resource_id,
+      'summaryText/resource' => $comp_map_resource_id,
+    ]
   );
 
   if ($agent->success) {
@@ -397,3 +404,77 @@ sub add_answers {
 
   return;
 }
+
+sub create_img_resource {
+  return _create_resource('image', @_);
+}
+
+sub create_txt_resource {
+  return _create_resource('text', @_);
+}
+
+sub _create_resource {
+  my ($type, $name, $title, $resource) = @_;
+  croak qq{Invalid resource type ($type)!} if $type !~ /^(?:image|text)$/;
+  my $url = qq{$UMLESSONS_URL/resource/create/$UNIT_URL_NAME/$name};
+
+  $agent->post(
+    qq{$UMLESSONS_URL/resource/setup/$UNIT_URL_NAME/$name}, {
+      choice => $type,
+      op     => 'Continue...',
+    }
+  );
+
+  my $param_ref = {
+    choice          => $type,
+    title           => $title,
+    keywords        => $EMPTY,
+    border          => '0',
+    borderBgColor   => 'black',
+    borderFillColor => 'none',
+    op              => 'Save',
+  };
+
+  my $id;
+  given ($type) {
+    when (/text/) {
+      $param_ref->{excerpt} = $resource;
+      $agent->post($url, $param_ref);
+      $id = get_response_id($agent->response->previous->header('location'));
+    }
+    when (/image/) {
+
+      # FIXME some random bug server side is eating our uploads.
+      #       for the time being upload by hand and find the resource
+      #       that matches $title and return that id instead.
+      #
+      #       Well this poses a problem as the resources haven't been
+      #       created yet. what a freaking mess.
+      #
+      # $param_ref->{upload_file} = $resource;
+      # $agent->agent_alias('Windows IE 6');
+      # $agent->form_name('fm');
+      # map { $agent->field($_, $param_ref->{$_}) } keys %{$param_ref};
+      # my $res = $agent->submit();
+
+      $id = find_resource($name, $title);
+    }
+  }
+
+  if ($agent->success) {
+    say qq{Created resource ($title - $id) successfully};
+  }
+
+  return $id;
+}
+
+sub create_competencies_resource {
+  my ($comps) = @_;
+
+  my $json = sprintf
+    qq{<!-- html -->\n<script type="text/javascript">\nvar competencies = %s\n</script>\n<!-- html -->},
+    JSON::Any->to_json($comps_ref);
+
+  return create_txt_resource($test->{lesson_name}, q{Competency Map}, $json);
+}
+
